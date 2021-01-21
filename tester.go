@@ -9,16 +9,18 @@ import (
 )
 
 type requestChan chan struct{}
-type resultChan chan Report
+type resultChan chan Result
 
 func WithRequests(u string, w uint64, n uint64) (Report, error) {
 	if n < w {
-		return NewReport(), fmt.Errorf("number of requests cannot be less then worker")
+		return Report{}, fmt.Errorf("number of requests cannot be less then worker")
 	}
 
 	req := numChan(n, w)
-	rep := spawnAndWait(u, w, req)
-
+	rep, err := spawnAndWait(u, w, req)
+	if err != nil {
+		return rep, err
+	}
 	return rep, nil
 }
 
@@ -27,44 +29,45 @@ func WithDuration(u string, w uint64, d time.Duration) (Report, error) {
 	defer cancel()
 	req := cancelChan(ctx, w)
 
-	rep := spawnAndWait(u, w, req)
-
+	rep, err := spawnAndWait(u, w, req)
+	if err != nil {
+		return rep, err
+	}
 	return rep, nil
 }
 
-func spawnAndWait(u string, w uint64, req requestChan) Report {
+func spawnAndWait(u string, w uint64, req requestChan) (Report, error) {
 	res := make([]resultChan, 0, w)
 	for i := w; i > 0; i-- {
 		fmt.Println("M: start worker")
 		res = append(res, worker(u, req))
 	}
-	rep := NewReport()
+	stat := NewStatistics()
 	for r := range merge(res...) {
-		rep.Merge(r)
+		stat.Add(r)
 	}
-	rep.Finalize()
+	rep, err := stat.Finalize()
+	if err != nil {
+		return Report{}, err
+	}
 	fmt.Println("M: done")
-	return rep
+	return rep, nil
 }
 
 func worker(u string, req requestChan) resultChan {
 	res := make(resultChan)
 	go func() {
-		rep := NewReport()
 		for range req {
 			start := time.Now()
 			r, err := http.Get(u)
-			if err != nil {
-				rep.Fail++
-			} else {
-				rep.Success++
+			// TODO: manage error with errGroup
+			if err == nil {
 				r.Body.Close()
+				d := time.Since(start)
+				res <- Result{dur: d}
 			}
-			stop := time.Now()
-			rep.AddTime(stop.Sub(start))
 		}
 		fmt.Println("W: done")
-		res <- rep
 		close(res)
 	}()
 	return res

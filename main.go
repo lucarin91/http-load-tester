@@ -64,11 +64,11 @@ func run(args cmdArgs) error {
 	}
 	fmt.Printf(`
 Summary:
-  Success:      %d/%d
+  Requests:     %d
   Slowest:      %s
   Fastest:      %s
   Average:      %s
   Requests/sec: %.2f
-`, rep.Success, rep.Success+rep.Fail, rep.Slowest, rep.Fastest, rep.Average, rep.ReqPerSec)
+`, rep.Requests, rep.Slowest, rep.Fastest, rep.Average, rep.ReqPerSec)
 	return nil
 }

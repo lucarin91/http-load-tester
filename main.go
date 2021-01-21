@@ -82,5 +82,12 @@ Summary:
   Average:      %s
   Requests/sec: %.2f
 `, rep.Requests, rep.Slowest, rep.Fastest, rep.Average, rep.ReqPerSec)
+
+	fmt.Println("\nStatus code distribution:")
+	for k, v := range rep.Codes {
+		fmt.Printf("  [%d] %d responses", k, v)
+	}
+	fmt.Println()
+
 	return nil
 }

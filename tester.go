@@ -48,7 +48,7 @@ func spawnAndWait(u string, w uint64, req requestChan) (Report, error) {
 	}
 	rep, err := stat.Finalize()
 	if err != nil {
-		return Report{}, err
+		return rep, err
 	}
 	fmt.Println("M: done")
 	return rep, nil
@@ -64,7 +64,7 @@ func worker(u string, req requestChan) resultChan {
 			if err == nil {
 				r.Body.Close()
 				d := time.Since(start)
-				res <- Result{dur: d}
+				res <- Result{dur: d, code: r.StatusCode}
 			}
 		}
 		fmt.Println("W: done")

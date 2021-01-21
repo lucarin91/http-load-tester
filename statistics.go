@@ -12,6 +12,7 @@ type Statistics struct {
 	min   time.Duration
 	start time.Time
 	total time.Duration
+	codes map[int]uint64
 }
 type Report struct {
 	Requests  uint64
@@ -19,16 +20,19 @@ type Report struct {
 	Fastest   time.Duration
 	Average   time.Duration
 	ReqPerSec float64
+	Codes     map[int]uint64
 }
 
 type Result struct {
-	dur time.Duration
+	dur  time.Duration
+	code int
 }
 
 func NewStatistics() Statistics {
 	return Statistics{
 		start: time.Now(),
 		min:   time.Duration(math.MaxInt64),
+		codes: make(map[int]uint64),
 	}
 }
 
@@ -37,6 +41,7 @@ func (s *Statistics) Add(res Result) {
 	s.n++
 	s.max = time.Duration(math.Max(float64(s.max), float64(res.dur)))
 	s.min = time.Duration(math.Min(float64(s.min), float64(res.dur)))
+	s.codes[res.code]++
 }
 
 func (s *Statistics) Finalize() (Report, error) {
@@ -49,5 +54,6 @@ func (s *Statistics) Finalize() (Report, error) {
 		Fastest:   s.min,
 		Average:   time.Duration(uint64(s.total) / s.n),
 		ReqPerSec: float64(s.n) / time.Since(s.start).Seconds(),
+		Codes:     s.codes,
 	}, nil
 }

@@ -13,7 +13,7 @@ type resultChan chan Report
 
 func WithRequests(u string, w uint64, n uint64) (Report, error) {
 	if n < w {
-		return Report{}, fmt.Errorf("number of requests cannot be less then worker")
+		return NewReport(), fmt.Errorf("number of requests cannot be less then worker")
 	}
 
 	req := numChan(n, w)
@@ -38,10 +38,11 @@ func spawnAndWait(u string, w uint64, req requestChan) Report {
 		fmt.Println("M: start worker")
 		res = append(res, worker(u, req))
 	}
-	var rep Report
+	rep := NewReport()
 	for r := range merge(res...) {
 		rep.Merge(r)
 	}
+	rep.Finalize()
 	fmt.Println("M: done")
 	return rep
 }
@@ -49,8 +50,9 @@ func spawnAndWait(u string, w uint64, req requestChan) Report {
 func worker(u string, req requestChan) resultChan {
 	res := make(resultChan)
 	go func() {
-		var rep Report
+		rep := NewReport()
 		for range req {
+			start := time.Now()
 			r, err := http.Get(u)
 			if err != nil {
 				rep.Fail++
@@ -58,6 +60,8 @@ func worker(u string, req requestChan) resultChan {
 				rep.Success++
 				r.Body.Close()
 			}
+			stop := time.Now()
+			rep.AddTime(stop.Sub(start))
 		}
 		fmt.Println("W: done")
 		res <- rep

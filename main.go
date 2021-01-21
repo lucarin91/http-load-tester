@@ -40,6 +40,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	// TODO: handle CTRL-C signal to graceful shoutdown and print report
+
 	if err := run(args); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -60,6 +62,13 @@ func run(args cmdArgs) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Report: %+v\n", rep)
+	fmt.Printf(`
+Summary:
+  Success:      %d/%d
+  Slowest:      %s
+  Fastest:      %s
+  Average:      %s
+  Requests/sec: %.2f
+`, rep.Success, rep.Success+rep.Fail, rep.Slowest, rep.Fastest, rep.Average, rep.ReqPerSec)
 	return nil
 }

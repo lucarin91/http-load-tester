@@ -11,12 +11,12 @@ import (
 type requestChan chan struct{}
 type resultChan chan Result
 
-func WithRequests(u string, w uint64, n uint64) (Report, error) {
+func WithRequests(ctx context.Context, u string, w uint64, n uint64) (Report, error) {
 	if n < w {
 		return Report{}, fmt.Errorf("number of requests cannot be less then worker")
 	}
 
-	req := numChan(n, w)
+	req := numChan(ctx, n, w)
 	rep, err := spawnAndWait(u, w, req)
 	if err != nil {
 		return rep, err
@@ -24,11 +24,11 @@ func WithRequests(u string, w uint64, n uint64) (Report, error) {
 	return rep, nil
 }
 
-func WithDuration(u string, w uint64, d time.Duration) (Report, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), d)
+func WithDuration(ctx context.Context, u string, w uint64, d time.Duration) (Report, error) {
+	ctx, cancel := context.WithTimeout(ctx, d)
 	defer cancel()
-	req := cancelChan(ctx, w)
 
+	req := cancelChan(ctx, w)
 	rep, err := spawnAndWait(u, w, req)
 	if err != nil {
 		return rep, err
@@ -89,11 +89,17 @@ func cancelChan(ctx context.Context, cap uint64) requestChan {
 	return req
 }
 
-func numChan(n, cap uint64) requestChan {
+func numChan(ctx context.Context, n, cap uint64) requestChan {
 	req := make(requestChan, cap)
 	go func() {
 		for i := n; i > 0; i-- {
-			req <- struct{}{}
+			select {
+			case <-ctx.Done():
+				close(req)
+				return
+			default:
+				req <- struct{}{}
+			}
 		}
 		close(req)
 	}()

@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"time"
 )
 
@@ -40,8 +42,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// TODO: handle CTRL-C signal to graceful shoutdown and print report
-
 	if err := run(args); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -49,19 +49,31 @@ func main() {
 }
 
 func run(args cmdArgs) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	termChan := make(chan os.Signal)
+	signal.Notify(termChan, os.Interrupt, os.Kill)
+	go func() {
+		<-termChan // Blocks here until interrupted
+		fmt.Println("terminate...")
+		cancel()
+	}()
+
 	rep, err := func() (Report, error) {
 		if "" != args.duration {
 			d, err := time.ParseDuration(args.duration)
 			if err != nil {
 				return Report{}, err
 			}
-			return WithDuration(args.url, args.workers, d)
+			return WithDuration(ctx, args.url, args.workers, d)
 		}
-		return WithRequests(args.url, args.workers, args.requests)
+		return WithRequests(ctx, args.url, args.workers, args.requests)
 	}()
 	if err != nil {
 		return err
 	}
+
 	fmt.Printf(`
 Summary:
   Requests:     %d

@@ -85,7 +85,13 @@ Summary:
 
 	fmt.Println("\nStatus code distribution:")
 	for k, v := range rep.Codes {
-		fmt.Printf("  [%d] %d responses", k, v)
+		fmt.Printf("  [%d] %d responses\n", k, v)
+	}
+	fmt.Println()
+
+	fmt.Println("\nPercentiles:")
+	for _, p := range rep.Percentiles {
+		fmt.Printf("  [ %dth ] %s\n", p.Percentile, p.Value)
 	}
 	fmt.Println()
 

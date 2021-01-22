@@ -60,12 +60,12 @@ func worker(u string, req requestChan) resultChan {
 		for range req {
 			start := time.Now()
 			r, err := http.Get(u)
-			// TODO: manage error with errGroup
-			if err == nil {
-				r.Body.Close()
-				d := time.Since(start)
-				res <- Result{dur: d, code: r.StatusCode}
+			if err != nil {
+				// TODO: manage error with errGroup
 			}
+			r.Body.Close()
+			d := time.Since(start)
+			res <- Result{dur: d, code: r.StatusCode}
 		}
 		fmt.Println("W: done")
 		close(res)

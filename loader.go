@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
-	"sync"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 )
 
 type requestChan chan struct{}
@@ -15,9 +17,12 @@ func WithRequests(ctx context.Context, u string, w uint64, n uint64) (Report, er
 	if n < w {
 		return Report{}, fmt.Errorf("number of requests cannot be less then worker")
 	}
+	g, ctx := errgroup.WithContext(ctx)
 
-	req := numChan(ctx, n, w)
-	rep, err := spawnAndWait(u, w, req)
+	req := make(requestChan, w)
+	g.Go(numChan(ctx, req, n))
+
+	rep, err := spawnAndWait(ctx, g, u, w, req)
 	if err != nil {
 		return rep, err
 	}
@@ -25,104 +30,102 @@ func WithRequests(ctx context.Context, u string, w uint64, n uint64) (Report, er
 }
 
 func WithDuration(ctx context.Context, u string, w uint64, d time.Duration) (Report, error) {
+	g, ctx := errgroup.WithContext(ctx)
 	ctx, cancel := context.WithTimeout(ctx, d)
 	defer cancel()
 
-	req := cancelChan(ctx, w)
-	rep, err := spawnAndWait(u, w, req)
+	req := make(requestChan, w)
+	g.Go(cancelChan(ctx, req))
+
+	rep, err := spawnAndWait(ctx, g, u, w, req)
 	if err != nil {
 		return rep, err
 	}
 	return rep, nil
 }
 
-func spawnAndWait(u string, w uint64, req requestChan) (Report, error) {
-	res := make([]resultChan, 0, w)
-	for i := w; i > 0; i-- {
-		fmt.Println("M: start worker")
-		res = append(res, worker(u, req))
-	}
+func spawnAndWait(ctx context.Context, g *errgroup.Group, u string, w uint64, req requestChan) (Report, error) {
+	res := make(resultChan, w+1)
+
 	stat := NewStatistics()
-	for r := range merge(res...) {
+	fmt.Println("M: start workers")
+	for i := w; i > 0; i-- {
+		g.Go(worker(ctx, req, res, u))
+	}
+
+	go func() {
+		g.Wait()
+		close(res)
+	}()
+
+	fmt.Println("M: wait workers")
+	for r := range res {
 		stat.Add(r)
+	}
+
+	fmt.Println("M: check errors and finalize")
+	err := g.Wait()
+	if err != nil && !errors.Is(err, context.DeadlineExceeded) {
+		return Report{}, fmt.Errorf("errgroup: %v", err)
 	}
 	rep, err := stat.Finalize()
 	if err != nil {
 		return rep, err
 	}
+
 	fmt.Println("M: done")
 	return rep, nil
 }
 
-func worker(u string, req requestChan) resultChan {
-	res := make(resultChan)
-	go func() {
-		for range req {
+func worker(ctx context.Context, in requestChan, out resultChan, u string) func() error {
+	return func() error {
+		for range in {
 			start := time.Now()
 			r, err := http.Get(u)
 			if err != nil {
-				// TODO: manage error with errGroup
+				// fmt.Println("W: error")
+				return err
 			}
 			r.Body.Close()
 			d := time.Since(start)
-			res <- Result{dur: d, code: r.StatusCode}
+			select {
+			case out <- Result{dur: d, code: r.StatusCode}:
+			case <-ctx.Done():
+				// fmt.Println("W: ctx done")
+				return ctx.Err()
+			}
 		}
-		fmt.Println("W: done")
-		close(res)
-	}()
-	return res
+		// fmt.Println("W: done")
+		return nil
+	}
 }
 
-func cancelChan(ctx context.Context, cap uint64) requestChan {
-	req := make(requestChan, cap)
-	go func() {
+func cancelChan(ctx context.Context, out requestChan) func() error {
+	return func() error {
+		defer close(out)
 		for {
 			select {
 			case <-ctx.Done():
-				close(req)
-				return
-			default:
-				req <- struct{}{}
+				// fmt.Println("S: ctx done")
+				return ctx.Err()
+			case out <- struct{}{}:
 			}
 		}
-	}()
-	return req
+	}
 }
 
-func numChan(ctx context.Context, n, cap uint64) requestChan {
-	req := make(requestChan, cap)
-	go func() {
+func numChan(ctx context.Context, out requestChan, n uint64) func() error {
+	return func() error {
+		defer close(out)
 		for i := n; i > 0; i-- {
 			select {
 			case <-ctx.Done():
-				close(req)
-				return
-			default:
-				req <- struct{}{}
+				// fmt.Println("S: ctx done")
+				return ctx.Err()
+			case out <- struct{}{}:
 			}
 		}
-		close(req)
-	}()
-	return req
-}
-
-func merge(cs ...resultChan) resultChan {
-	var wg sync.WaitGroup
-	out := make(resultChan)
-
-	wg.Add(len(cs))
-	for _, c := range cs {
-		go func(c resultChan) {
-			for e := range c {
-				out <- e
-			}
-			wg.Done()
-		}(c)
+		// fmt.Println("S: done")
+		return nil
 	}
-
-	go func() {
-		wg.Wait()
-		close(out)
-	}()
-	return out
 }
